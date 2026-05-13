@@ -129,6 +129,35 @@ on:
         type: string
         description: "Flavor defines a global behavior for meta-tags"
         required: false
+      # docker/login-action
+      docker-login:
+        type: boolean
+        description: "Run docker/login-action steps using the registry-auths secret to authenticate with registries before push, signing and manifest steps"
+        required: false
+        default: true
+      # aws-actions/configure-aws-credentials + aws-actions/amazon-ecr-login
+      aws-ecr-login:
+        type: boolean
+        description: "Authenticate to AWS via OIDC and login to Amazon ECR before push, signing and manifest steps. Requires aws-region and aws-role-to-assume, and the caller workflow must grant id-token: write"
+        required: false
+        default: false
+      aws-region:
+        type: string
+        description: "AWS region passed to aws-actions/configure-aws-credentials when aws-ecr-login is enabled"
+        required: false
+      aws-role-to-assume:
+        type: string
+        description: "IAM role ARN assumed via OIDC by aws-actions/configure-aws-credentials when aws-ecr-login is enabled"
+        required: false
+      aws-ecr-registries:
+        type: string
+        description: "Comma-separated list of AWS account IDs passed to aws-actions/amazon-ecr-login as 'registries' (defaults to the caller's account)"
+        required: false
+      aws-ecr-registry-type:
+        type: string
+        description: "ECR registry type passed to aws-actions/amazon-ecr-login: 'private' or 'public'"
+        required: false
+        default: 'private'
     secrets:
       registry-auths:
         description: "Raw authentication to registries, defined as YAML objects (for image output)"
@@ -768,10 +797,24 @@ jobs:
             }
       -
         name: Login to registry
-        if: ${{ inputs.push && inputs.output == 'image' }}
+        if: ${{ inputs.docker-login && inputs.push && inputs.output == 'image' }}
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           registry-auth: ${{ secrets.registry-auths }}
+      -
+        name: Configure AWS credentials
+        if: ${{ inputs.aws-ecr-login && inputs.push && inputs.output == 'image' }}
+        uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
+        with:
+          aws-region: ${{ inputs.aws-region }}
+          role-to-assume: ${{ inputs.aws-role-to-assume }}
+      -
+        name: Login to Amazon ECR
+        if: ${{ inputs.aws-ecr-login && inputs.push && inputs.output == 'image' }}
+        uses: aws-actions/amazon-ecr-login@ed06f2901106319cff7c273ab7c9f72c5413b50b # v2.1.5
+        with:
+          registries: ${{ inputs.aws-ecr-registries }}
+          registry-type: ${{ inputs.aws-ecr-registry-type }}
       -
         name: Build
         id: build
@@ -797,12 +840,26 @@ jobs:
           GIT_AUTH_TOKEN: ${{ secrets.github-token || github.token }}
       -
         name: Login to registry for signing
-        if: ${{ needs.prepare.outputs.sign == 'true' && inputs.output == 'image' }}
+        if: ${{ inputs.docker-login && needs.prepare.outputs.sign == 'true' && inputs.output == 'image' }}
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           registry-auth: ${{ secrets.registry-auths }}
         env:
           DOCKER_LOGIN_SCOPE_DISABLED: true # make sure the scope feature is disabled to avoid interfering with cosign OIDC login
+      -
+        name: Configure AWS credentials for signing
+        if: ${{ inputs.aws-ecr-login && needs.prepare.outputs.sign == 'true' && inputs.output == 'image' }}
+        uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
+        with:
+          aws-region: ${{ inputs.aws-region }}
+          role-to-assume: ${{ inputs.aws-role-to-assume }}
+      -
+        name: Login to Amazon ECR for signing
+        if: ${{ inputs.aws-ecr-login && needs.prepare.outputs.sign == 'true' && inputs.output == 'image' }}
+        uses: aws-actions/amazon-ecr-login@ed06f2901106319cff7c273ab7c9f72c5413b50b # v2.1.5
+        with:
+          registries: ${{ inputs.aws-ecr-registries }}
+          registry-type: ${{ inputs.aws-ecr-registry-type }}
       -
         name: Signing attestation manifests
         id: signing-attestation-manifests
@@ -948,12 +1005,26 @@ jobs:
           annotations: ${{ inputs.meta-annotations }}
       -
         name: Login to registry
-        if: ${{ inputs.push && inputs.output == 'image' }}
+        if: ${{ inputs.docker-login && inputs.push && inputs.output == 'image' }}
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           registry-auth: ${{ secrets.registry-auths }}
         env:
           DOCKER_LOGIN_SCOPE_DISABLED: true # FIXME: scope feature is not yet supported by Buildx imagetools command
+      -
+        name: Configure AWS credentials
+        if: ${{ inputs.aws-ecr-login && inputs.push && inputs.output == 'image' }}
+        uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
+        with:
+          aws-region: ${{ inputs.aws-region }}
+          role-to-assume: ${{ inputs.aws-role-to-assume }}
+      -
+        name: Login to Amazon ECR
+        if: ${{ inputs.aws-ecr-login && inputs.push && inputs.output == 'image' }}
+        uses: aws-actions/amazon-ecr-login@ed06f2901106319cff7c273ab7c9f72c5413b50b # v2.1.5
+        with:
+          registries: ${{ inputs.aws-ecr-registries }}
+          registry-type: ${{ inputs.aws-ecr-registry-type }}
       -
         name: Set up Docker Buildx
         if: ${{ inputs.push && inputs.output == 'image' }}
