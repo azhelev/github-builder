@@ -463,7 +463,7 @@ jobs:
               core.setOutput('sign', sign);
             });
             await core.group(`Set ghaCacheSign output`, async () => {
-              const ghaCacheSign = inpActionsIdTokenSet ? 'true' : 'false';
+              const ghaCacheSign = 'false';
               core.info(`ghaCacheSign: ${ghaCacheSign}`);
               core.setOutput('ghaCacheSign', ghaCacheSign);
             });
